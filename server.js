@@ -85,11 +85,14 @@ app.get('/', (req, res) => {
 
 // ---------- Connect DB & Start Server ----------
 const PORT = process.env.PORT || 5000;
-mongoose
-  .connect(process.env.MONGO_URI)
+const IP = process.env.IP || '0.0.0.0';
+
+mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log('MongoDB connected');
-    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    app.listen(PORT, IP, () => {
+      console.log(`Server running on ${IP}:${PORT}`);
+    });
   })
   .catch((err) => console.error(err));
 
