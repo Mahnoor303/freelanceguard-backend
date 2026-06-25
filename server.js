@@ -2,8 +2,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const http = require('http');                       // 1. import http
-const { Server } = require('socket.io');           // 2. import socket.io
+const http = require('http');
+const { Server } = require('socket.io');
 
 dotenv.config();
 
@@ -24,38 +24,33 @@ const userNotificationRoutes = require('./routes/userNotificationRoutes');
 
 // ---------- Init Express ----------
 const app = express();
+
+// 🔧 CORS – must be set BEFORE any other middleware or routes
+app.use(cors({
+  origin: ['https://mahnoor303.github.io', 'http://localhost:5173'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Optionally keep helmet but disable the offending policy
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+app.use(helmet({ crossOriginResourcePolicy: false }));
 
-// Security headers
-app.use(helmet());
+// Rate limiter (commented out for now to avoid accidental blocks)
+// const rateLimit = require('express-rate-limit');
+// const generalLimiter = rateLimit({ ... });
+// app.use('/api', generalLimiter);
 
-// General API rate limiter (100 requests per 15 minutes per IP)
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: { message: 'Too many requests, please try again later.' }
-});
-app.use('/api', generalLimiter);
-
-// Stricter rate limiter for auth routes (10 attempts per 15 minutes)
-// const authLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000,
-//   max: 10,
-//   message: { message: 'Too many login attempts, please try again later.' }
-// });
-// app.use('/api/auth', authLimiter);
 // ---------- Create HTTP server & Socket.io ----------
-const server = http.createServer(app);              // 3. create server after app
-const io = new Server(server, {                     // 4. attach socket.io
+const server = http.createServer(app);
+const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-// Make io accessible to controllers
 app.set('io', io);
 
 // ---------- Middleware ----------
-app.use(cors({ origin: ['https://mahnoor303.github.io', 'http://localhost:5173'] }));
 app.use(express.json());
 
 // ---------- Routes ----------
@@ -90,13 +85,13 @@ const IP = process.env.IP || '0.0.0.0';
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log('MongoDB connected');
-    app.listen(PORT, IP, () => {
+    server.listen(PORT, IP, () => {
       console.log(`Server running on ${IP}:${PORT}`);
     });
   })
   .catch((err) => console.error(err));
 
-// ---------- Socket.io Events (optional) ----------
+// ---------- Socket.io Events ----------
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 });
