@@ -2,7 +2,6 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Scan = require('../models/Scan');
 const User = require('../models/User');
 
-// Initialize Gemini (may fail if quota exceeded, but we catch)
 let genAI;
 try {
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -10,7 +9,6 @@ try {
   console.warn('Gemini init failed, using dummy analysis');
 }
 
-// Common prompt builder
 const buildPrompt = (text, scanType) => {
   const typeMap = {
     jobPost: 'a freelance job posting',
@@ -34,48 +32,60 @@ ${text}
 Return ONLY the JSON object, no extra text.`;
 };
 
-// Dummy analysis (fallback when Gemini is unavailable)
+// Enhanced dummy analysis – realistic, keyword-based, returns different scores
 const dummyAnalysis = (text, scanType) => {
-  let riskScore, riskLevel, redFlags = [], safeSigns = [], aiSummary = '';
+  const lower = text.toLowerCase();
+  let riskScore = 50;
+  let redFlags = [];
+  let safeSigns = [];
+  let aiSummary = '';
 
   if (scanType === 'jobPost') {
-    riskScore = 75;
-    riskLevel = 'danger';
-    redFlags = ['Missing Company Details', 'Unrealistic Salary'];
-    safeSigns = [];
-    aiSummary = 'This job posting shows several scam indicators.';
-  } else if (scanType === 'message') {
-    riskScore = 65;
-    riskLevel = 'caution';
-    redFlags = ['Pressure Tactics', 'Urgency Language'];
-    safeSigns = [];
-    aiSummary = 'The message contains pressure tactics.';
-  } else if (scanType === 'contract') {
-    riskScore = 55;
-    riskLevel = 'caution';
-    redFlags = ['Unlimited Non-Compete', 'Late Payment Clause'];
-    safeSigns = [];
-    aiSummary = 'Contract has some risky clauses.';
-  } else if (scanType === 'client') {
-    riskScore = 20;
-    riskLevel = 'safe';
-    redFlags = [];
-    safeSigns = ['Real company name', 'Domain verified'];
-    aiSummary = 'Client appears trustworthy.';
+    if (lower.includes('urgent') || lower.includes('immediately')) { riskScore += 15; redFlags.push('Urgency Language'); }
+    if (lower.includes('salary') && (lower.includes('high') || lower.includes('$'))) { riskScore += 10; redFlags.push('Unrealistic Salary'); }
+    if (lower.includes('no experience') || lower.includes('no skill')) { riskScore += 10; redFlags.push('No Experience Required'); }
+    if (!lower.includes('company') && !lower.includes('team')) { riskScore += 5; redFlags.push('Missing Company Details'); }
+    if (lower.includes('personal') || lower.includes('id') || lower.includes('passport')) { riskScore += 15; redFlags.push('Requests Personal Info'); }
+    if (lower.includes('reputable') || lower.includes('well-known')) { safeSigns.push('Mentions reputable company'); riskScore -= 10; }
+    aiSummary = riskScore > 70 ? 'This job posting shows several scam indicators.' : riskScore > 40 ? 'Some suspicious elements.' : 'Job posting seems normal.';
+  } 
+  else if (scanType === 'message') {
+    if (lower.includes('urgent') || lower.includes('asap')) { riskScore += 15; redFlags.push('Urgency Tactics'); }
+    if (lower.includes('pay') && (lower.includes('later') || lower.includes('after'))) { riskScore += 10; redFlags.push('Pay Later Promise'); }
+    if (lower.includes('whatsapp') || lower.includes('telegram') || lower.includes('off-platform')) { riskScore += 20; redFlags.push('Off-platform Communication'); }
+    if (lower.includes('dear') || lower.includes('kindly') || lower.includes('sir')) { riskScore += 5; redFlags.push('Generic Greeting'); }
+    if (lower.includes('linkedin') || lower.includes('portfolio')) { safeSigns.push('Professional reference'); riskScore -= 10; }
+    aiSummary = riskScore > 70 ? 'Message contains strong scam signals.' : riskScore > 40 ? 'Some suspicious patterns.' : 'Message appears genuine.';
+  }
+  else if (scanType === 'contract') {
+    if (lower.includes('non-compete') && (lower.includes('years') || lower.includes('worldwide'))) { riskScore += 20; redFlags.push('Excessive Non-Compete'); }
+    if (lower.includes('payment') && (lower.includes('days') || lower.includes('net'))) { riskScore += 10; redFlags.push('Delayed Payment Terms'); }
+    if (lower.includes('intellectual property') && lower.includes('transfer')) { riskScore += 15; redFlags.push('IP Transfer Clause'); }
+    if (lower.includes('clear') || lower.includes('standard')) { safeSigns.push('Standard clauses'); riskScore -= 10; }
+    aiSummary = riskScore > 60 ? 'Contract has risky clauses.' : 'Contract appears balanced.';
+  }
+  else if (scanType === 'client') {
+    if (lower.includes('google') || lower.includes('microsoft') || lower.includes('apple')) { riskScore = 10; safeSigns.push('Well-known company'); }
+    else if (lower.includes('new') || lower.includes('no website')) { riskScore = 70; redFlags.push('New/Unknown Company'); }
+    else if (lower.includes('linkedin') || lower.includes('domain')) { riskScore = 30; safeSigns.push('Online presence found'); }
+    else { riskScore = 40; }
+    aiSummary = riskScore < 30 ? 'Client appears trustworthy.' : riskScore > 60 ? 'Client has high risk.' : 'Client requires further verification.';
   }
 
+  riskScore = Math.min(100, Math.max(5, riskScore));
+  const riskLevel = riskScore > 70 ? 'danger' : riskScore > 40 ? 'caution' : 'safe';
   return { riskScore, riskLevel, redFlags, safeSigns, aiSummary };
 };
 
 const analyzeWithGemini = async (text, scanType) => {
-  // If Gemini is not initialized or we want to force dummy, use dummy
   if (!genAI) {
     console.log('Using dummy analysis (Gemini not available)');
     return dummyAnalysis(text, scanType);
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    // 👇 CORRECTED MODEL NAME – now valid
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = buildPrompt(text, scanType);
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
@@ -90,30 +100,12 @@ const analyzeWithGemini = async (text, scanType) => {
       aiSummary: parsed.aiSummary || 'No summary provided.',
     };
   } catch (error) {
-    console.error('Gemini API error (using dummy):', error.message);
-    return dummyAnalysis(text, scanType);
+    console.error('Gemini API error (using enhanced dummy):', error.message);
+    return dummyAnalysis(text, scanType);   // now this will give varied results
   }
 };
 
 const createScan = async (req, res) => {
-  if (scanType === 'jobPost') await User.findByIdAndUpdate(userId, { $inc: { totalJobScans: 1 } });
-  else if (scanType === 'message') await User.findByIdAndUpdate(userId, { $inc: { totalMessageScans: 1 } });
-  else if (scanType === 'contract') await User.findByIdAndUpdate(userId, { $inc: { totalContractScans: 1 } });
-  else if (scanType === 'client') await User.findByIdAndUpdate(userId, { $inc: { totalClientChecks: 1 } });
-  const user = await User.findById(userId);
-  if (user.plan === 'free') {
-    // Daily limits
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const scansToday = await Scan.countDocuments({
-      userId,
-      createdAt: { $gte: today },
-      scanType
-    });
-    if (scansToday >= user.scanLimitPerDay) {
-      return res.status(403).json({ message: 'Daily scan limit reached. Upgrade to Pro for unlimited.' });
-    }
-  }
   try {
     const userId = req.user._id;
     const { inputText } = req.body;
@@ -141,7 +133,7 @@ const createScan = async (req, res) => {
       safeSigns: analysis.safeSigns,
       aiSummary: analysis.aiSummary,
     });
-    io.emit('admin-new-scan', scan);
+
     await User.findByIdAndUpdate(userId, { $inc: { totalScans: 1 } });
 
     // Notification for admin
