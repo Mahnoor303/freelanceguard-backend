@@ -28,13 +28,11 @@ Return ONLY the JSON object, no extra text.`;
 };
 
 const analyzeWithGemini = async (text, scanType) => {
+  // ✅ This is the correct, free tier model name
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
   const prompt = buildPrompt(text, scanType);
-
   const result = await model.generateContent(prompt);
   const responseText = result.response.text();
-
-  // Clean the response (sometimes Gemini wraps in ```json)
   const cleaned = responseText.replace(/```json|```/g, '').trim();
   const parsed = JSON.parse(cleaned);
 
@@ -63,7 +61,6 @@ const createScan = async (req, res) => {
       return res.status(400).json({ message: 'Input text is too short' });
     }
 
-    // Real AI analysis – no dummy fallback
     const analysis = await analyzeWithGemini(inputText, scanType);
 
     const scan = await Scan.create({
@@ -79,7 +76,6 @@ const createScan = async (req, res) => {
 
     await User.findByIdAndUpdate(userId, { $inc: { totalScans: 1 } });
 
-    // Notification for admin
     try {
       const Notification = require('../models/Notification');
       await Notification.create({
@@ -92,14 +88,12 @@ const createScan = async (req, res) => {
       console.error('Notification error:', notifErr.message);
     }
 
-    // Real-time event
     const io = req.app.get('io');
     if (io) io.emit('new-scan', scan);
 
     res.status(201).json(scan);
   } catch (error) {
     console.error('Scan error:', error);
-    // Return the actual error so you can see what went wrong
     res.status(500).json({ message: error.message });
   }
 };
