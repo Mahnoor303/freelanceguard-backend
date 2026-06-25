@@ -55,7 +55,7 @@ const io = new Server(server, {                     // 4. attach socket.io
 app.set('io', io);
 
 // ---------- Middleware ----------
-app.use(cors());
+app.use(cors({ origin: ['https://mahnoor303.github.io', 'http://localhost:5173'] }));
 app.use(express.json());
 
 // ---------- Routes ----------
